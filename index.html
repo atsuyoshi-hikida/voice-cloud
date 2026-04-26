@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<title>Voice Cloud</title>
+/* Googleフォームの投稿からメッセージを吹き出し浮遊させる */
+<style>
+  body {
+    margin: 0;
+    background: #ffffff;
+    overflow: hidden;
+    font-family: "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
+  }
+
+  #stage {
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+  }
+
+  .bubble {
+    position: absolute;
+    max-width: 280px;
+    padding: 14px 18px;
+    background: #ffffff;
+    border: 2px solid #444;
+    border-radius: 16px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+    word-break: break-word;
+    pointer-events: none;
+  }
+
+  .bubble::after {
+    content: "";
+    position: absolute;
+    bottom: -14px;
+    left: 30px;
+    border-width: 14px 12px 0;
+    border-style: solid;
+    border-color: #444 transparent transparent;
+  }
+
+  .new {
+    animation: pop 1.6s ease-out;
+  }
+
+  @keyframes pop {
+    0%   { transform: scale(1.2); opacity: 0; }
+    60%  { transform: scale(1.1); opacity: 1; }
+    100% { transform: scale(1.0); opacity: 1; }
+  }
+</style>
+</head>
+
+<body>
+<div id="stage"></div>
+
+<script>
+/* ===== 設定 ===== */
+
+const API_URL = "https://script.google.com/macros/s/AKfycbwR5S9hM13kxQjMn2CDc9pZsytXvoQ9xKPVOjRhpKTXK41ljbOmAiPVf3Cfpcwo4Afw/exec";
+const UPDATE_INTERVAL = 5000;
+
+const LAYERS  = 5;
+const SIZE    = [1.0, 0.8, 0.6, 0.5, 0.4];
+const OPACITY = [1.0, 0.8, 0.6, 0.4, 0.25];
+const Z       = [50, 40, 30, 20, 10];
+const RADII   = [140, 300, 520, 760, 1040];
+
+// 大きな漂い
+const FLOAT_RADIUS_BASE = 120;
+const FLOAT_SPEED_BASE  = 0.002;
+
+// 微細ノイズ（自然さの決め手）
+const NOISE_RADIUS = 18;
+const NOISE_SPEED  = 0.015;
+
+/* ===== 状態 ===== */
+
+const stage = document.getElementById("stage");
+let bubbles = {};
+let previousLatestText = null;
+let lastTime = performance.now();
+
+/* ===== アニメーション ===== */
+
+function animate(now) {
+  const delta = Math.min((now - lastTime) / 16.666, 2);
+  lastTime = now;
+
+  Object.values(bubbles).forEach(b => {
+    // 大きな漂い
+    b.phase += b.floatSpeed * delta;
+    const baseFloatX = Math.cos(b.phase) * b.floatRadius;
+    const baseFloatY = Math.sin(b.phase) * b.floatRadius;
+
+    // 微細ノイズ（ゆっくり方向が変わる）
+    b.noisePhase += NOISE_SPEED * delta;
+    const noiseX = Math.cos(b.noisePhase * 1.7) * NOISE_RADIUS;
+    const noiseY = Math.sin(b.noisePhase * 1.3) * NOISE_RADIUS;
+
+    const targetX = b.baseX + baseFloatX + noiseX;
+    const targetY = b.baseY + baseFloatY + noiseY;
+
+    // 慣性追従
+    b.x += (targetX - b.x) * 0.06 * delta;
+    b.y += (targetY - b.y) * 0.06 * delta;
+
+    b.el.style.left = `${b.x}px`;
+    b.el.style.top  = `${b.y}px`;
+  });
+
+  requestAnimationFrame(animate);
+}
+
+/* ===== データ更新 ===== */
+
+async function update() {
+  const res = await fetch(API_URL);
+  const data = await res.json();
+
+  const total = data.messages.length;
+  const centerX = window.innerWidth / 2;
+  const centerY = window.innerHeight / 2;
+  const perLayer = Math.ceil(total / LAYERS);
+
+  const latestText = data.messages[0]?.text;
+  const hasNew = latestText && latestText !== previousLatestText;
+  previousLatestText = latestText;
+
+  const newBubbles = {};
+  const layerCounts = Array(LAYERS).fill(0);
+
+  data.messages.forEach((msg, i) => {
+    const key = msg.text;
+    const layer = Math.floor(i / perLayer);
+    if (layer >= LAYERS) return;
+
+    const count = layerCounts[layer]++;
+    const density = Math.min(total / 30, 1);
+    const angleStep = (2 * Math.PI / perLayer) * (1.4 - density * 0.6);
+    const angle = count * angleStep + Math.random() * 0.2;
+
+    const baseX = centerX + Math.cos(angle) * RADII[layer];
+    const baseY = centerY + Math.sin(angle) * RADII[layer];
+
+    let bubble = bubbles[key];
+
+    if (!bubble) {
+      const el = document.createElement("div");
+      el.className = "bubble";
+      el.textContent = msg.text;
+      el.style.transform = `scale(${SIZE[layer]})`;
+      el.style.opacity = OPACITY[layer];
+      el.style.zIndex = Z[layer];
+      stage.appendChild(el);
+
+      bubble = {
+        el,
+        x: baseX,
+        y: baseY,
+        baseX,
+        baseY,
+        phase: Math.random() * Math.PI * 2,
+        noisePhase: Math.random() * Math.PI * 2,
+        floatRadius: FLOAT_RADIUS_BASE * (1 - layer * 0.15),
+        floatSpeed:  FLOAT_SPEED_BASE  * (1 - layer * 0.2)
+      };
+
+      if (hasNew && i === 0) el.classList.add("new");
+    }
+
+    bubble.baseX = baseX;
+    bubble.baseY = baseY;
+    newBubbles[key] = bubble;
+  });
+
+  stage.innerHTML = "";
+  Object.values(newBubbles).forEach(b => stage.appendChild(b.el));
+  bubbles = newBubbles;
+}
+
+/* ===== 起動 ===== */
+
+update();
+requestAnimationFrame(animate);
+setInterval(update, UPDATE_INTERVAL);
+</script>
+</body>
+</html>
