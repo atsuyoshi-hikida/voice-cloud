@@ -47,16 +47,6 @@
     border-color: #444 transparent transparent;
   }
 
-  .new {
-    animation: pulse 1.6s ease-out;
-  }
-
-  @keyframes pulse {
-    0%   { transform: scale(1.2); opacity: 0; }
-    60%  { transform: scale(1.05); opacity: 1; }
-    100% { transform: scale(1.0); opacity: 1; }
-  }
-
   @media (max-width: 768px) {
     * {
       touch-action: none;
@@ -72,35 +62,24 @@
 <div id="stage"></div>
 
 <script>
-/* ===== 設定 ===== */
 const API_URL = "https://script.google.com/macros/s/AKfycbwR5S9hM13kxQjMn2CDc9pZsytXvoQ9xKPVOjRhpKTXK41ljbOmAiPVf3Cfpcwo4Afw/exec";
 const UPDATE_INTERVAL = 5000;
-const isMobile = window.matchMedia("(max-width: 768px)").matches;
 
-/* ===== レイヤー設計（4段階） ===== */
 const LAYERS = 4;
-
-/* 中心寄り・密 */
-const RADII = isMobile
-  ? [70, 120, 180, 250]
-  : [140, 300, 520, 760];
-
 const SIZE = [0.8, 0.6, 0.5, 0.4];
-
 const OPACITY = [1.0, 0.75, 0.55, 0.35];
+const RADII = [70, 120, 180, 250];
 
-const FLOAT_RADIUS_BASE = isMobile ? 65 : 120;
-const FLOAT_SPEED_BASE  = isMobile ? 0.003 : 0.002;
-const NOISE_RADIUS = isMobile ? 12 : 18;
+const FLOAT_RADIUS_BASE = 65;
+const FLOAT_SPEED_BASE  = 0.003;
+const NOISE_RADIUS = 12;
 const NOISE_SPEED  = 0.015;
 
-/* ===== 状態 ===== */
 const stage = document.getElementById("stage");
 let bubbles = {};
-let previousLatestText = null;
 let lastTime = performance.now();
 
-/* ===== 重なりをゆるく緩和 ===== */
+/* 重なり緩和 */
 function relaxOverlap(list) {
   const MIN_DIST = 110;
   const POWER = 0.15;
@@ -112,7 +91,6 @@ function relaxOverlap(list) {
       const dx = a.baseX - b.baseX;
       const dy = a.baseY - b.baseY;
       const dist = Math.hypot(dx, dy);
-
       if (dist < MIN_DIST) {
         const push = (MIN_DIST - dist) * POWER;
         const nx = dx / (dist || 1);
@@ -126,7 +104,20 @@ function relaxOverlap(list) {
   }
 }
 
-/* ===== アニメーション ===== */
+/* 中心から拡散 */
+function disperseFromCenter(list, cx, cy) {
+  const POWER = 0.08;
+  list.forEach(b => {
+    const dx = b.baseX - cx;
+    const dy = b.baseY - cy;
+    const dist = Math.hypot(dx, dy) || 1;
+    const push = Math.max(0, 180 - dist) * POWER;
+    b.baseX += (dx / dist) * push;
+    b.baseY += (dy / dist) * push;
+  });
+}
+
+/* アニメーション */
 function animate(now) {
   const delta = Math.min((now - lastTime) / 16.666, 2);
   lastTime = now;
@@ -150,39 +141,29 @@ function animate(now) {
   requestAnimationFrame(animate);
 }
 
-/* ===== 更新 ===== */
+/* 更新 */
 async function update() {
   const res = await fetch(API_URL);
   const data = await res.json();
 
-  const total = data.messages.length;
   const cx = window.innerWidth / 2;
   const cy = window.innerHeight / 2;
-  const perLayer = Math.ceil(total / LAYERS);
-
-  const latestText = data.messages[0]?.text;
-  const hasNew = latestText && latestText !== previousLatestText;
-  previousLatestText = latestText;
+  const perLayer = Math.ceil(data.messages.length / LAYERS);
 
   const bubbleList = [];
-  const newBubbles = {};
-  const layerCounts = Array(LAYERS).fill(0);
-  const angleOffset = Math.random() * Math.PI * 2;
+  stage.innerHTML = "";
 
   data.messages.forEach((msg, i) => {
-    const layer = Math.min(
-      Math.floor(i / perLayer),
-      LAYERS - 1
-    );
+    const layer = Math.min(Math.floor(i / perLayer), LAYERS - 1);
+    const count = i % perLayer;
 
-    const count = layerCounts[layer]++;
     const angle =
-      angleOffset +
-      count * (2 * Math.PI / perLayer) +
+      (i / data.messages.length) * Math.PI * 2 +
       (Math.random() - 0.5) * 0.6;
 
     const radius =
-      RADII[layer] * (0.85 + Math.random() * 0.3);
+      RADII[layer] * (0.85 + Math.random() * 0.3) +
+      count * 12;
 
     const baseX = cx + Math.cos(angle) * radius;
     const baseY = cy + Math.sin(angle) * radius;
@@ -194,9 +175,7 @@ async function update() {
     el.style.opacity = OPACITY[layer];
     stage.appendChild(el);
 
-    if (hasNew && i === 0) el.classList.add("new");
-
-    const bubble = {
+    bubbleList.push({
       el,
       x: baseX,
       y: baseY,
@@ -205,25 +184,19 @@ async function update() {
       phase: Math.random() * Math.PI * 2,
       noisePhase: Math.random() * Math.PI * 2,
       floatRadius: FLOAT_RADIUS_BASE * (0.8 + Math.random() * 0.4),
-      floatSpeed:  FLOAT_SPEED_BASE  * (0.8 + Math.random() * 0.4)
-    };
-
-    bubbleList.push(bubble);
-    newBubbles[msg.text] = bubble;
+      floatSpeed:  FLOAT_SPEED_BASE
+    });
   });
 
   relaxOverlap(bubbleList);
+  disperseFromCenter(bubbleList, cx, cy);
 
-  stage.innerHTML = "";
-  bubbleList.forEach(b => stage.appendChild(b.el));
-  bubbles = newBubbles;
+  bubbleList.forEach(b => bubbles[b.el.textContent] = b);
 }
 
-/* ===== 起動 ===== */
 update();
 requestAnimationFrame(animate);
 setInterval(update, UPDATE_INTERVAL);
 </script>
 </body>
 </html>
-``
