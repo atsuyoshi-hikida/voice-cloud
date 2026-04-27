@@ -2,12 +2,12 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Voice Cloud</title>
 
 <style>
   body {
     margin: 0;
-    overflow: hidden;
     background: linear-gradient(
       to bottom,
       #eaf5ff 0%,
@@ -15,6 +15,7 @@
       #cfe8ff 100%
     );
     font-family: "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
+    overflow: hidden;
   }
 
   #stage {
@@ -33,6 +34,7 @@
     box-shadow: 0 6px 18px rgba(0,0,0,0.08);
     word-break: break-word;
     pointer-events: none;
+    user-select: none;
   }
 
   .bubble::after {
@@ -54,6 +56,30 @@
     60%  { transform: scale(1.1); opacity: 1; }
     100% { transform: scale(1.0); opacity: 1; }
   }
+
+  /* ===== スマホ専用 ===== */
+  @media (max-width: 768px) {
+    body {
+      overflow: auto;
+    }
+
+    #stage {
+      height: auto;
+      min-height: 100vh;
+      touch-action: none;
+    }
+
+    .bubble {
+      max-width: 220px;
+      font-size: 14px;
+    }
+
+    * {
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+  }
 </style>
 </head>
 
@@ -65,16 +91,19 @@
 const API_URL = "https://script.google.com/macros/s/AKfycbwR5S9hM13kxQjMn2CDc9pZsytXvoQ9xKPVOjRhpKTXK41ljbOmAiPVf3Cfpcwo4Afw/exec";
 const UPDATE_INTERVAL = 5000;
 
-const LAYERS  = 5;
-const SIZE    = [1.0, 0.8, 0.6, 0.5, 0.4];
-const OPACITY = [1.0, 0.8, 0.6, 0.4, 0.25];
-const Z       = [50, 40, 30, 20, 10];
+const isMobile = window.matchMedia("(max-width: 768px)").matches;
+
+/* PC用レイヤー設定 */
+const LAYERS  = isMobile ? 1 : 5;
+const SIZE    = isMobile ? [1.0] : [1.0, 0.8, 0.6, 0.5, 0.4];
+const OPACITY = isMobile ? [1.0] : [1.0, 0.8, 0.6, 0.4, 0.25];
+const Z       = isMobile ? [10]  : [50, 40, 30, 20, 10];
 const RADII   = [140, 300, 520, 760, 1040];
 
-const FLOAT_RADIUS_BASE = 120;
-const FLOAT_SPEED_BASE  = 0.002;
-const NOISE_RADIUS = 18;
-const NOISE_SPEED  = 0.015;
+const FLOAT_RADIUS_BASE = isMobile ? 0 : 120;
+const FLOAT_SPEED_BASE  = isMobile ? 0 : 0.002;
+const NOISE_RADIUS = isMobile ? 0 : 18;
+const NOISE_SPEED  = isMobile ? 0 : 0.015;
 
 /* ===== 状態 ===== */
 const stage = document.getElementById("stage");
@@ -84,6 +113,8 @@ let lastTime = performance.now();
 
 /* ===== アニメーション ===== */
 function animate(now) {
+  if (isMobile) return;
+
   const delta = Math.min((now - lastTime) / 16.666, 2);
   lastTime = now;
 
@@ -125,8 +156,6 @@ async function update() {
 
   const newBubbles = {};
   const layerCounts = Array(LAYERS).fill(0);
-
-  // ★ ここが重要：角度の開始点をランダム化 ★
   const angleOffset = Math.random() * Math.PI * 2;
 
   data.messages.forEach((msg, i) => {
@@ -134,13 +163,21 @@ async function update() {
     const layer = Math.floor(i / perLayer);
     if (layer >= LAYERS) return;
 
-    const count = layerCounts[layer]++;
-    const density = Math.min(total / 30, 1);
-    const angleStep = (2 * Math.PI / perLayer) * (1.4 - density * 0.6);
+    let baseX, baseY;
 
-    const angle = angleOffset + count * angleStep + Math.random() * 0.2;
-    const baseX = centerX + Math.cos(angle) * RADII[layer];
-    const baseY = centerY + Math.sin(angle) * RADII[layer];
+    if (isMobile) {
+      const GAP = 24;
+      const TOP = 40;
+      baseX = centerX;
+      baseY = TOP + i * (80 + GAP);
+    } else {
+      const count = layerCounts[layer]++;
+      const density = Math.min(total / 30, 1);
+      const angleStep = (2 * Math.PI / perLayer) * (1.4 - density * 0.6);
+      const angle = angleOffset + count * angleStep + Math.random() * 0.2;
+      baseX = centerX + Math.cos(angle) * RADII[layer];
+      baseY = centerY + Math.sin(angle) * RADII[layer];
+    }
 
     let bubble = bubbles[key];
 
@@ -148,7 +185,7 @@ async function update() {
       const el = document.createElement("div");
       el.className = "bubble";
       el.textContent = msg.text;
-      el.style.transform = `scale(${SIZE[layer]})`;
+      el.style.transform = `translateX(-50%) scale(${SIZE[layer]})`;
       el.style.opacity = OPACITY[layer];
       el.style.zIndex = Z[layer];
       stage.appendChild(el);
@@ -161,8 +198,8 @@ async function update() {
         baseY,
         phase: Math.random() * Math.PI * 2,
         noisePhase: Math.random() * Math.PI * 2,
-        floatRadius: FLOAT_RADIUS_BASE * (1 - layer * 0.15),
-        floatSpeed:  FLOAT_SPEED_BASE  * (1 - layer * 0.2)
+        floatRadius: FLOAT_RADIUS_BASE,
+        floatSpeed: FLOAT_SPEED_BASE
       };
 
       if (hasNew && i === 0) el.classList.add("new");
@@ -170,6 +207,7 @@ async function update() {
 
     bubble.baseX = baseX;
     bubble.baseY = baseY;
+
     newBubbles[key] = bubble;
   });
 
@@ -180,7 +218,7 @@ async function update() {
 
 /* ===== 起動 ===== */
 update();
-requestAnimationFrame(animate);
+if (!isMobile) requestAnimationFrame(animate);
 setInterval(update, UPDATE_INTERVAL);
 </script>
 </body>
