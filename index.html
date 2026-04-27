@@ -46,17 +46,28 @@
     border-color: #444 transparent transparent;
   }
 
-  .new {
-    animation: pop 1.6s ease-out;
+  /* === スマホ用：ふわふわ === */
+  @keyframes floatSoft {
+    0%   { transform: translateY(0); }
+    50%  { transform: translateY(-10px); }
+    100% { transform: translateY(0); }
   }
 
-  @keyframes pop {
+  .float-a { animation: floatSoft 6s ease-in-out infinite; }
+  .float-b { animation: floatSoft 7.5s ease-in-out infinite; }
+  .float-c { animation: floatSoft 9s ease-in-out infinite; }
+
+  .new {
+    animation: pulse 1.6s ease-out;
+  }
+
+  @keyframes pulse {
     0%   { transform: scale(1.2); opacity: 0; }
-    60%  { transform: scale(1.1); opacity: 1; }
+    60%  { transform: scale(1.05); opacity: 1; }
     100% { transform: scale(1.0); opacity: 1; }
   }
 
-  /* ===== スマホ専用 ===== */
+  /* ===== スマホ ===== */
   @media (max-width: 768px) {
     body {
       overflow: auto;
@@ -65,18 +76,14 @@
     #stage {
       height: auto;
       min-height: 100vh;
-      padding: 40px 0;
+      padding: 40px 0 80px;
     }
 
     .bubble {
       position: relative;
-      margin: 0 auto 28px auto;
+      margin: 0 auto 36px auto;
       max-width: 85%;
       font-size: 14px;
-    }
-
-    .bubble::after {
-      left: 24px;
     }
 
     * {
@@ -93,125 +100,12 @@
 <div id="stage"></div>
 
 <script>
-/* ===== 設定 ===== */
 const API_URL = "https://script.google.com/macros/s/AKfycbwR5S9hM13kxQjMn2CDc9pZsytXvoQ9xKPVOjRhpKTXK41ljbOmAiPVf3Cfpcwo4Afw/exec";
 const UPDATE_INTERVAL = 5000;
 const isMobile = window.matchMedia("(max-width: 768px)").matches;
 
-/* PC用設定 */
-const LAYERS  = isMobile ? 1 : 5;
-const SIZE    = isMobile ? [1.0] : [1.0, 0.8, 0.6, 0.5, 0.4];
-const OPACITY = isMobile ? [1.0] : [1.0, 0.8, 0.6, 0.4, 0.25];
-const Z       = isMobile ? [10]  : [50, 40, 30, 20, 10];
-const RADII   = [140, 300, 520, 760, 1040];
-const FLOAT_RADIUS_BASE = isMobile ? 0 : 120;
-const FLOAT_SPEED_BASE  = isMobile ? 0 : 0.002;
-const NOISE_RADIUS = isMobile ? 0 : 18;
-const NOISE_SPEED  = isMobile ? 0 : 0.015;
-
-/* ===== 状態 ===== */
-const stage = document.getElementById("stage");
-let bubbles = {};
 let previousLatestText = null;
-let lastTime = performance.now();
+const stage = document.getElementById("stage");
 
-/* ===== アニメーション（PCのみ）===== */
-function animate(now) {
-  if (isMobile) return;
-
-  const delta = Math.min((now - lastTime) / 16.666, 2);
-  lastTime = now;
-
-  Object.values(bubbles).forEach(b => {
-    b.phase += b.floatSpeed * delta;
-    b.noisePhase += NOISE_SPEED * delta;
-
-    const floatX = Math.cos(b.phase) * b.floatRadius;
-    const floatY = Math.sin(b.phase) * b.floatRadius;
-    const noiseX = Math.cos(b.noisePhase * 1.7) * NOISE_RADIUS;
-    const noiseY = Math.sin(b.noisePhase * 1.3) * NOISE_RADIUS;
-
-    b.x += (b.baseX + floatX + noiseX - b.x) * 0.06 * delta;
-    b.y += (b.baseY + floatY + noiseY - b.y) * 0.06 * delta;
-
-    b.el.style.left = `${b.x}px`;
-    b.el.style.top  = `${b.y}px`;
-  });
-
-  requestAnimationFrame(animate);
-}
-
-/* ===== データ更新 ===== */
 async function update() {
   const res = await fetch(API_URL);
-  const data = await res.json();
-
-  const latestText = data.messages[0]?.text;
-  const hasNew = latestText && latestText !== previousLatestText;
-  previousLatestText = latestText;
-
-  stage.innerHTML = "";
-  bubbles = {};
-
-  if (isMobile) {
-    /* === スマホ：縦スクロール === */
-    data.messages.forEach((msg, i) => {
-      const el = document.createElement("div");
-      el.className = "bubble";
-      el.textContent = msg.text;
-      if (hasNew && i === 0) el.classList.add("new");
-      stage.appendChild(el);
-    });
-    return;
-  }
-
-  /* === PC：浮遊 === */
-  const total = data.messages.length;
-  const centerX = window.innerWidth / 2;
-  const centerY = window.innerHeight / 2;
-  const perLayer = Math.ceil(total / LAYERS);
-  const layerCounts = Array(LAYERS).fill(0);
-  const angleOffset = Math.random() * Math.PI * 2;
-
-  data.messages.forEach((msg, i) => {
-    const layer = Math.floor(i / perLayer);
-    if (layer >= LAYERS) return;
-
-    const count = layerCounts[layer]++;
-    const angle = angleOffset + count * (2 * Math.PI / perLayer);
-    const baseX = centerX + Math.cos(angle) * RADII[layer];
-    const baseY = centerY + Math.sin(angle) * RADII[layer];
-
-    const el = document.createElement("div");
-    el.className = "bubble";
-    el.textContent = msg.text;
-    el.style.position = "absolute";
-    el.style.transform = `scale(${SIZE[layer]})`;
-    el.style.opacity = OPACITY[layer];
-    el.style.zIndex = Z[layer];
-    stage.appendChild(el);
-
-    bubbles[msg.text] = {
-      el,
-      x: baseX,
-      y: baseY,
-      baseX,
-      baseY,
-      phase: Math.random() * Math.PI * 2,
-      noisePhase: Math.random() * Math.PI * 2,
-      floatRadius: FLOAT_RADIUS_BASE,
-      floatSpeed: FLOAT_SPEED_BASE
-    };
-
-    if (hasNew && i === 0) el.classList.add("new");
-  });
-}
-
-/* ===== 起動 ===== */
-update();
-if (!isMobile) requestAnimationFrame(animate);
-setInterval(update, UPDATE_INTERVAL);
-</script>
-</body>
-</html>
-``
