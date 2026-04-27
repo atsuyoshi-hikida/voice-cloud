@@ -52,12 +52,12 @@
   }
 
   @keyframes pulse {
-    0%   { transform: scale(1.2); opacity: 0; }
-    60%  { transform: scale(1.05); opacity: 1; }
+    0%   { transform: scale(1.25); opacity: 0; }
+    60%  { transform: scale(1.1); opacity: 1; }
     100% { transform: scale(1.0); opacity: 1; }
   }
 
-  /* スマホ：完全操作無効（展示用） */
+  /* スマホ：完全操作無効 */
   @media (max-width: 768px) {
     * {
       touch-action: none;
@@ -78,23 +78,24 @@ const API_URL = "https://script.google.com/macros/s/AKfycbwR5S9hM13kxQjMn2CDc9pZ
 const UPDATE_INTERVAL = 5000;
 const isMobile = window.matchMedia("(max-width: 768px)").matches;
 
-/* レイヤー（スマホは1層で密に） */
-const LAYERS  = isMobile ? 1 : 5;
-const RADII   = isMobile
-  ? [140]
+/* ===== レイヤー設計 ===== */
+const LAYERS = isMobile ? 3 : 5;
+
+const RADII = isMobile
+  ? [80, 140, 220]                // 密な雲
   : [140, 300, 520, 760, 1040];
 
 const SIZE = isMobile
-  ? [0.9]
+  ? [1.05, 0.85, 0.65]            // ★ サイズ差
   : [1.0, 0.8, 0.6, 0.5, 0.4];
 
 const OPACITY = isMobile
-  ? [0.9]
+  ? [1.0, 0.7, 0.45]              // ★ 奥行き感
   : [1.0, 0.8, 0.6, 0.4, 0.25];
 
-const FLOAT_RADIUS_BASE = isMobile ? 80 : 120;
+const FLOAT_RADIUS_BASE = isMobile ? 70 : 120;
 const FLOAT_SPEED_BASE  = isMobile ? 0.003 : 0.002;
-const NOISE_RADIUS = isMobile ? 14 : 18;
+const NOISE_RADIUS = isMobile ? 12 : 18;
 const NOISE_SPEED  = 0.015;
 
 /* ===== 状態 ===== */
@@ -120,8 +121,8 @@ function animate(now) {
     const tx = b.baseX + fx + nx;
     const ty = b.baseY + fy + ny;
 
-    b.x += (tx - b.x) * 0.08 * delta;
-    b.y += (ty - b.y) * 0.08 * delta;
+    b.x += (tx - b.x) * 0.07 * delta;
+    b.y += (ty - b.y) * 0.07 * delta;
 
     b.el.style.left = `${b.x}px`;
     b.el.style.top  = `${b.y}px`;
@@ -130,7 +131,7 @@ function animate(now) {
   requestAnimationFrame(animate);
 }
 
-/* ===== データ更新 ===== */
+/* ===== 更新 ===== */
 async function update() {
   const res = await fetch(API_URL);
   const data = await res.json();
@@ -149,16 +150,16 @@ async function update() {
   const angleOffset = Math.random() * Math.PI * 2;
 
   data.messages.forEach((msg, i) => {
-    const key = msg.text;
     const layer = Math.floor(i / perLayer);
     if (layer >= LAYERS) return;
 
     const count = layerCounts[layer]++;
     const angle = angleOffset + count * (2 * Math.PI / perLayer);
+
     const baseX = cx + Math.cos(angle) * RADII[layer];
     const baseY = cy + Math.sin(angle) * RADII[layer];
 
-    let bubble = bubbles[key];
+    let bubble = bubbles[msg.text];
 
     if (!bubble) {
       const el = document.createElement("div");
@@ -183,9 +184,7 @@ async function update() {
       if (hasNew && i === 0) el.classList.add("new");
     }
 
-    bubble.baseX = baseX;
-    bubble.baseY = baseY;
-    newBubbles[key] = bubble;
+    newBubbles[msg.text] = bubble;
   });
 
   stage.innerHTML = "";
