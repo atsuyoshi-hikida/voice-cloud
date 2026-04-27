@@ -57,7 +57,6 @@
     100% { transform: scale(1.0); opacity: 1; }
   }
 
-  /* スマホ：完全操作無効 */
   @media (max-width: 768px) {
     * {
       touch-action: none;
@@ -82,15 +81,15 @@ const isMobile = window.matchMedia("(max-width: 768px)").matches;
 const LAYERS = isMobile ? 3 : 5;
 
 const RADII = isMobile
-  ? [80, 140, 220]                // 密な雲
+  ? [80, 140, 220]
   : [140, 300, 520, 760, 1040];
 
 const SIZE = isMobile
-  ? [1.05, 0.85, 0.65]            // ★ サイズ差
+  ? [1.05, 0.85, 0.65]
   : [1.0, 0.8, 0.6, 0.5, 0.4];
 
 const OPACITY = isMobile
-  ? [1.0, 0.7, 0.45]              // ★ 奥行き感
+  ? [1.0, 0.7, 0.45]
   : [1.0, 0.8, 0.6, 0.4, 0.25];
 
 const FLOAT_RADIUS_BASE = isMobile ? 70 : 120;
@@ -103,6 +102,34 @@ const stage = document.getElementById("stage");
 let bubbles = {};
 let previousLatestText = null;
 let lastTime = performance.now();
+
+/* ===== 重なり緩和（ゆるい）===== */
+function relaxOverlap(list) {
+  const MIN_DIST = 120;   // 近すぎの基準
+  const POWER = 0.15;    // 押し出しの弱さ
+
+  for (let i = 0; i < list.length; i++) {
+    for (let j = i + 1; j < list.length; j++) {
+      const a = list[i];
+      const b = list[j];
+
+      const dx = a.baseX - b.baseX;
+      const dy = a.baseY - b.baseY;
+      const dist = Math.hypot(dx, dy);
+
+      if (dist < MIN_DIST) {
+        const push = (MIN_DIST - dist) * POWER;
+        const nx = dx / (dist || 1);
+        const ny = dy / (dist || 1);
+
+        a.baseX += nx * push;
+        a.baseY += ny * push;
+        b.baseX -= nx * push;
+        b.baseY -= ny * push;
+      }
+    }
+  }
+}
 
 /* ===== アニメーション ===== */
 function animate(now) {
@@ -146,6 +173,7 @@ async function update() {
   previousLatestText = latestText;
 
   const newBubbles = {};
+  const bubbleList = [];
   const layerCounts = Array(LAYERS).fill(0);
   const angleOffset = Math.random() * Math.PI * 2;
 
@@ -154,41 +182,48 @@ async function update() {
     if (layer >= LAYERS) return;
 
     const count = layerCounts[layer]++;
-    const angle = angleOffset + count * (2 * Math.PI / perLayer);
 
-    const baseX = cx + Math.cos(angle) * RADII[layer];
-    const baseY = cy + Math.sin(angle) * RADII[layer];
+    const angle =
+      angleOffset +
+      count * (2 * Math.PI / perLayer) +
+      (Math.random() - 0.5) * 0.6; // ★ 角度分散
 
-    let bubble = bubbles[msg.text];
+    const radius =
+      RADII[layer] * (0.85 + Math.random() * 0.3); // ★ 半径分散
 
-    if (!bubble) {
-      const el = document.createElement("div");
-      el.className = "bubble";
-      el.textContent = msg.text;
-      el.style.transform = `scale(${SIZE[layer]})`;
-      el.style.opacity = OPACITY[layer];
-      stage.appendChild(el);
+    const baseX = cx + Math.cos(angle) * radius;
+    const baseY = cy + Math.sin(angle) * radius;
 
-      bubble = {
-        el,
-        x: baseX,
-        y: baseY,
-        baseX,
-        baseY,
-        phase: Math.random() * Math.PI * 2,
-        noisePhase: Math.random() * Math.PI * 2,
-        floatRadius: FLOAT_RADIUS_BASE * (0.8 + Math.random() * 0.4),
-        floatSpeed:  FLOAT_SPEED_BASE  * (0.8 + Math.random() * 0.4)
-      };
+    const el = document.createElement("div");
+    el.className = "bubble";
+    el.textContent = msg.text;
+    el.style.transform = `scale(${SIZE[layer]})`;
+    el.style.opacity = OPACITY[layer];
+    stage.appendChild(el);
 
-      if (hasNew && i === 0) el.classList.add("new");
-    }
+    const bubble = {
+      el,
+      x: baseX,
+      y: baseY,
+      baseX,
+      baseY,
+      phase: Math.random() * Math.PI * 2,
+      noisePhase: Math.random() * Math.PI * 2,
+      floatRadius: FLOAT_RADIUS_BASE * (0.8 + Math.random() * 0.4),
+      floatSpeed:  FLOAT_SPEED_BASE  * (0.8 + Math.random() * 0.4)
+    };
+
+    if (hasNew && i === 0) el.classList.add("new");
 
     newBubbles[msg.text] = bubble;
+    bubbleList.push(bubble);
   });
 
+  // ★ 重なり緩和をここで一度だけ実行
+  relaxOverlap(bubbleList);
+
   stage.innerHTML = "";
-  Object.values(newBubbles).forEach(b => stage.appendChild(b.el));
+  bubbleList.forEach(b => stage.appendChild(b.el));
   bubbles = newBubbles;
 }
 
@@ -199,3 +234,4 @@ setInterval(update, UPDATE_INTERVAL);
 </script>
 </body>
 </html>
+``
